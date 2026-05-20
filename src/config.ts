@@ -35,7 +35,7 @@ export class BlackstaffConfig {
       title:       'Blackstaff — Configuration (1/3)',
       prompt:      'URL du webhook n8n',
       value:       current.webhookUrl,
-      placeHolder: 'http://localhost:5678/webhook/blackstaff',
+      placeHolder: 'http://n8n:5678/webhook/blackstaff',
       validateInput: (v) => {
         if (!v) return 'L\'URL est requise';
         try { new URL(v); return null; }
