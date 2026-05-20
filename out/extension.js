@@ -8,31 +8,40 @@ const panel_1 = require("./panel");
 const config_1 = require("./config");
 function activate(context) {
     console.log('[Blackstaff] Extension activée');
+    // ── Enregistrer le provider sidebar en premier ─────────────────────
+    const panel = new panel_1.BlackstaffPanel(context);
+    context.subscriptions.push(vscode.window.registerWebviewViewProvider(panel_1.BlackstaffPanel.viewType, panel, { webviewOptions: { retainContextWhenHidden: true } }));
     // ── Commande : ouvrir le panel ─────────────────────────────────────
     context.subscriptions.push(vscode.commands.registerCommand('blackstaff.openPanel', () => {
-        panel_1.BlackstaffPanel.createOrShow(context);
+        vscode.commands.executeCommand('blackstaff.panel.focus');
     }));
     // ── Commande : configurer ──────────────────────────────────────────
     context.subscriptions.push(vscode.commands.registerCommand('blackstaff.configure', async () => {
-        await config_1.BlackstaffConfig.runWizard();
+        const saved = await config_1.BlackstaffConfig.runWizard();
+        if (saved)
+            panel.refreshConfig();
     }));
-    // ── Commande : générer (raccourci rapide via input box) ────────────
+    // ── Commande : changer de mode ─────────────────────────────────────
+    context.subscriptions.push(vscode.commands.registerCommand('blackstaff.switchMode', async () => {
+        const mode = await config_1.BlackstaffConfig.switchMode();
+        if (mode)
+            panel.refreshConfig();
+    }));
+    // ── Commande : générer ─────────────────────────────────────────────
     context.subscriptions.push(vscode.commands.registerCommand('blackstaff.generate', async () => {
         const config = config_1.BlackstaffConfig.get();
-        // Vérifier la config avant d'ouvrir
-        if (!config.webhookUrl || !config.project) {
+        if (!config.project) {
             const action = await vscode.window.showWarningMessage('Blackstaff n\'est pas configuré.', 'Configurer maintenant');
             if (action === 'Configurer maintenant') {
-                await config_1.BlackstaffConfig.runWizard();
+                const saved = await config_1.BlackstaffConfig.runWizard();
+                if (saved)
+                    panel.refreshConfig();
             }
             return;
         }
-        // Ouvrir le panel avec le focus sur le champ instruction
-        panel_1.BlackstaffPanel.createOrShow(context, { focusInput: true });
+        vscode.commands.executeCommand('blackstaff.panel.focus');
+        panel.focusInput();
     }));
-    // ── Ouvrir automatiquement le panel dans la sidebar ────────────────
-    vscode.commands.executeCommand('blackstaff.panel.focus').then(() => { }, () => { } // Silencieux si la sidebar n'est pas visible
-    );
 }
 function deactivate() { }
 //# sourceMappingURL=extension.js.map

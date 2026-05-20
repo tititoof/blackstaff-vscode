@@ -6,8 +6,7 @@ import { BlackstaffConfig } from './config';
 export function activate(context: vscode.ExtensionContext) {
   console.log('[Blackstaff] Extension activée');
 
-  // ── Enregistrer le provider de sidebar EN PREMIER ──────────────────
-  // Doit être fait dans activate() directement, pas dans une commande
+  // ── Enregistrer le provider sidebar en premier ─────────────────────
   const panel = new BlackstaffPanel(context);
   context.subscriptions.push(
     vscode.window.registerWebviewViewProvider(
@@ -27,23 +26,31 @@ export function activate(context: vscode.ExtensionContext) {
   // ── Commande : configurer ──────────────────────────────────────────
   context.subscriptions.push(
     vscode.commands.registerCommand('blackstaff.configure', async () => {
-      await BlackstaffConfig.runWizard();
-      panel.refreshConfig();
+      const saved = await BlackstaffConfig.runWizard();
+      if (saved) panel.refreshConfig();
     })
   );
 
-  // ── Commande : générer ────────────────────────────────────────────
+  // ── Commande : changer de mode ─────────────────────────────────────
+  context.subscriptions.push(
+    vscode.commands.registerCommand('blackstaff.switchMode', async () => {
+      const mode = await BlackstaffConfig.switchMode();
+      if (mode) panel.refreshConfig();
+    })
+  );
+
+  // ── Commande : générer ─────────────────────────────────────────────
   context.subscriptions.push(
     vscode.commands.registerCommand('blackstaff.generate', async () => {
       const config = BlackstaffConfig.get();
-      if (!config.webhookUrl || !config.project) {
+      if (!config.project) {
         const action = await vscode.window.showWarningMessage(
           'Blackstaff n\'est pas configuré.',
           'Configurer maintenant'
         );
         if (action === 'Configurer maintenant') {
-          await BlackstaffConfig.runWizard();
-          panel.refreshConfig();
+          const saved = await BlackstaffConfig.runWizard();
+          if (saved) panel.refreshConfig();
         }
         return;
       }

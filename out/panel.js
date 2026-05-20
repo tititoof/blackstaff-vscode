@@ -10,34 +10,31 @@ class BlackstaffPanel {
     constructor(_context) {
         this._context = _context;
     }
-    // ── Enregistrement du provider ─────────────────────────────────────
-    static createOrShow(context, options) {
-        if (!BlackstaffPanel._instance) {
-            BlackstaffPanel._instance = new BlackstaffPanel(context);
-            context.subscriptions.push(vscode.window.registerWebviewViewProvider(BlackstaffPanel.viewType, BlackstaffPanel._instance, { webviewOptions: { retainContextWhenHidden: true } }));
-        }
-        vscode.commands.executeCommand('blackstaff.panel.focus').then(() => {
-            if (options?.focusInput) {
-                BlackstaffPanel._instance?._view?.webview.postMessage({ type: 'focusInput' });
-            }
-        });
-    }
-    // ── Résolution du WebviewView ──────────────────────────────────────
     resolveWebviewView(webviewView, _context, _token) {
         this._view = webviewView;
         webviewView.webview.options = {
             enableScripts: true,
             localResourceRoots: [this._context.extensionUri],
         };
-        webviewView.webview.html = (0, webview_1.getWebviewContent)(webviewView.webview, this._context.extensionUri, config_1.BlackstaffConfig.get());
-        // ── Messages reçus depuis le WebView ──────────────────────────
+        this._render();
+        vscode.workspace.onDidChangeConfiguration(e => {
+            if (e.affectsConfiguration('blackstaff'))
+                this._render();
+        });
         webviewView.webview.onDidReceiveMessage(async (message) => {
             switch (message.type) {
                 case 'generate':
                     await this._handleGenerate(message.instruction);
                     break;
                 case 'configure':
-                    await this._handleConfigure();
+                    const saved = await config_1.BlackstaffConfig.runWizard();
+                    if (saved)
+                        this._render();
+                    break;
+                case 'switchMode':
+                    const mode = await config_1.BlackstaffConfig.switchMode();
+                    if (mode)
+                        this._render();
                     break;
                 case 'openFile':
                     await this._openFile(message.path);
@@ -48,35 +45,43 @@ class BlackstaffPanel {
             }
         });
     }
-    // ── Envoi de la configuration au WebView ──────────────────────────
+    refreshConfig() { this._render(); }
+    focusInput() { this._view?.webview.postMessage({ type: 'focusInput' }); }
+    _render() {
+        if (!this._view)
+            return;
+        this._view.webview.html = (0, webview_1.getWebviewContent)(this._view.webview, this._context.extensionUri, config_1.BlackstaffConfig.get());
+    }
     _sendConfig() {
         this._view?.webview.postMessage({
             type: 'config',
             config: config_1.BlackstaffConfig.get(),
         });
     }
-    // ── Gestion de la génération ───────────────────────────────────────
     async _handleGenerate(instruction) {
         if (!instruction?.trim()) {
             this._postError('L\'instruction ne peut pas être vide');
             return;
         }
         const config = config_1.BlackstaffConfig.get();
-        if (!config.webhookUrl || !config.project) {
+        if (!config.project) {
             this._postError('Blackstaff n\'est pas configuré. Cliquez sur ⚙ pour configurer.');
             return;
         }
-        // Notifier le WebView : début de génération
-        this._view?.webview.postMessage({ type: 'generating', instruction });
+        const activeMode = config_1.BlackstaffConfig.getActiveMode();
+        if (!activeMode) {
+            this._postError('Aucun mode actif configuré.');
+            return;
+        }
+        this._view?.webview.postMessage({ type: 'generating', instruction, mode: activeMode.label });
         try {
-            const response = await (0, client_1.sendToN8n)(config.webhookUrl, {
+            const response = await (0, client_1.sendToN8n)(activeMode.webhookUrl, {
                 project: config.project,
                 instruction: instruction.trim(),
-                mode: config.mode,
+                mode: activeMode.id,
+                type: config.projectType,
             }, (msg) => this._view?.webview.postMessage({ type: 'progress', message: msg }));
-            // Notifier le WebView : résultat
             this._view?.webview.postMessage({ type: 'result', response });
-            // Notification VS Code
             if (response.ok) {
                 vscode.window.showInformationMessage(response.message);
             }
@@ -90,24 +95,13 @@ class BlackstaffPanel {
             vscode.window.showErrorMessage(`Blackstaff: ${message}`);
         }
     }
-    // ── Gestion de la configuration ───────────────────────────────────
-    async _handleConfigure() {
-        const saved = await config_1.BlackstaffConfig.runWizard();
-        if (saved) {
-            this._view?.webview.postMessage({
-                type: 'config',
-                config: config_1.BlackstaffConfig.get(),
-            });
-        }
-    }
-    // ── Ouvrir un fichier généré dans l'éditeur ────────────────────────
     async _openFile(relativePath) {
-        const workspaceFolders = vscode.workspace.workspaceFolders;
-        if (!workspaceFolders?.length) {
+        const folders = vscode.workspace.workspaceFolders;
+        if (!folders?.length) {
             vscode.window.showErrorMessage('Aucun workspace ouvert');
             return;
         }
-        const uri = vscode.Uri.joinPath(workspaceFolders[0].uri, relativePath);
+        const uri = vscode.Uri.joinPath(folders[0].uri, relativePath);
         try {
             await vscode.window.showTextDocument(uri);
         }

@@ -1,10 +1,19 @@
 // src/config.ts
 import * as vscode from 'vscode';
 
+export interface BlackstaffMode {
+  id:          string;
+  label:       string;
+  description: string;
+  webhookUrl:  string;
+  icon:        string;
+}
+
 export interface BlackstaffSettings {
-  webhookUrl: string;
-  project:    string;
-  mode:       'generate' | 'dry-run';
+  project:     string;
+  projectType: string;
+  activeMode:  string;
+  modes:       BlackstaffMode[];
 }
 
 export class BlackstaffConfig {
@@ -12,13 +21,38 @@ export class BlackstaffConfig {
   static get(): BlackstaffSettings {
     const cfg = vscode.workspace.getConfiguration('blackstaff');
     return {
-      webhookUrl: cfg.get<string>('webhookUrl', 'http://localhost:5678/webhook/blackstaff'),
-      project:    cfg.get<string>('project', ''),
-      mode:       cfg.get<'generate' | 'dry-run'>('mode', 'generate'),
+      project:     cfg.get<string>('project', ''),
+      projectType: cfg.get<string>('projectType', 'nuxt3'),
+      activeMode:  cfg.get<string>('activeMode', 'generate'),
+      modes:       cfg.get<BlackstaffMode[]>('modes', BlackstaffConfig.defaultModes()),
     };
   }
 
-  static async set(key: keyof BlackstaffSettings, value: string): Promise<void> {
+  static getActiveMode(): BlackstaffMode | undefined {
+    const { modes, activeMode } = BlackstaffConfig.get();
+    return modes.find(m => m.id === activeMode) ?? modes[0];
+  }
+
+  static defaultModes(): BlackstaffMode[] {
+    return [
+      {
+        id:          'generate',
+        label:       'Generate',
+        description: 'Génère des fichiers depuis une instruction',
+        webhookUrl:  'http://localhost:5678/webhook/blackstaff',
+        icon:        '$(wand)',
+      },
+      {
+        id:          'thinking',
+        label:       'Thinking',
+        description: 'Analyse une spec et décompose en tâches',
+        webhookUrl:  'http://localhost:5678/webhook/blackstaff-thinking',
+        icon:        '$(lightbulb)',
+      },
+    ];
+  }
+
+  static async set(key: string, value: unknown): Promise<void> {
     await vscode.workspace.getConfiguration('blackstaff').update(
       key,
       value,
@@ -26,29 +60,14 @@ export class BlackstaffConfig {
     );
   }
 
-  // Wizard de configuration pas-à-pas
+  // ── Wizard de configuration ────────────────────────────────────────
   static async runWizard(): Promise<boolean> {
     const current = BlackstaffConfig.get();
 
-    // ── 1. URL du webhook ──────────────────────────────────────────
-    const webhookUrl = await vscode.window.showInputBox({
-      title:       'Blackstaff — Configuration (1/3)',
-      prompt:      'URL du webhook n8n',
-      value:       current.webhookUrl,
-      placeHolder: 'http://n8n:5678/webhook/blackstaff',
-      validateInput: (v) => {
-        if (!v) return 'L\'URL est requise';
-        try { new URL(v); return null; }
-        catch { return 'URL invalide'; }
-      }
-    });
-    if (!webhookUrl) return false;
-
-    // ── 2. Nom du projet ────────────────────────────────────────────
-    // Auto-détecter depuis le workspace si possible
+    // 1. Nom du projet
     const workspaceName = vscode.workspace.workspaceFolders?.[0]?.name || '';
     const project = await vscode.window.showInputBox({
-      title:       'Blackstaff — Configuration (2/3)',
+      title:       'Blackstaff — Configuration (1/3)',
       prompt:      'Nom du projet (dossier dans /home/node/projets/)',
       value:       current.project || workspaceName,
       placeHolder: 'chartman2.fr',
@@ -56,28 +75,75 @@ export class BlackstaffConfig {
     });
     if (!project) return false;
 
-    // ── 3. Mode ─────────────────────────────────────────────────────
-    const modeChoice = await vscode.window.showQuickPick(
+    // 2. Type de projet
+    const typeChoice = await vscode.window.showQuickPick(
       [
-        { label: '$(check) generate',  description: 'Génère et écrit les fichiers', value: 'generate' as const },
-        { label: '$(eye)  dry-run',    description: 'Preview uniquement, rien n\'est écrit', value: 'dry-run' as const },
+        { label: 'nuxt3',        description: 'Nuxt 3 + Nitro',              value: 'nuxt3' },
+        { label: 'rails',        description: 'Ruby on Rails API',            value: 'rails' },
+        { label: 'nuxt3+rails',  description: 'Nuxt 3 frontend + Rails API', value: 'nuxt3+rails' },
       ],
-      {
-        title:       'Blackstaff — Configuration (3/3)',
-        placeHolder: 'Choisir le mode',
-      }
+      { title: 'Blackstaff — Configuration (2/3)', placeHolder: 'Type de projet' }
     );
-    if (!modeChoice) return false;
+    if (!typeChoice) return false;
 
-    // Sauvegarder
-    await BlackstaffConfig.set('webhookUrl', webhookUrl);
-    await BlackstaffConfig.set('project', project);
-    await BlackstaffConfig.set('mode', modeChoice.value);
+    // 3. Configurer les modes (webhook par mode)
+    const configureModes = await vscode.window.showQuickPick(
+      [
+        { label: '$(check) Garder les modes par défaut', value: false },
+        { label: '$(gear)  Configurer les webhooks',     value: true  },
+      ],
+      { title: 'Blackstaff — Configuration (3/3)', placeHolder: 'Modes et webhooks' }
+    );
+    if (!configureModes) return false;
+
+    let modes = current.modes.length > 0 ? current.modes : BlackstaffConfig.defaultModes();
+
+    if (configureModes.value) {
+      // Configurer le webhook de chaque mode
+      for (const mode of modes) {
+        const url = await vscode.window.showInputBox({
+          title:       `Webhook pour le mode "${mode.label}"`,
+          prompt:      `URL du webhook n8n pour ${mode.label}`,
+          value:       mode.webhookUrl,
+          placeHolder: `http://localhost:5678/webhook/blackstaff-${mode.id}`,
+          validateInput: (v) => {
+            if (!v) return 'L\'URL est requise';
+            try { new URL(v); return null; }
+            catch { return 'URL invalide'; }
+          }
+        });
+        if (url) mode.webhookUrl = url;
+      }
+    }
+
+    await BlackstaffConfig.set('project',     project);
+    await BlackstaffConfig.set('projectType', typeChoice.value);
+    await BlackstaffConfig.set('modes',       modes);
 
     vscode.window.showInformationMessage(
-      `✅ Blackstaff configuré — projet: ${project}`
+      `✅ Blackstaff configuré — ${typeChoice.value} / ${project}`
+    );
+    return true;
+  }
+
+  // ── Changer de mode actif ──────────────────────────────────────────
+  static async switchMode(): Promise<BlackstaffMode | undefined> {
+    const { modes, activeMode } = BlackstaffConfig.get();
+
+    const choice = await vscode.window.showQuickPick(
+      modes.map(m => ({
+        label:       `${m.icon || '$(circle-outline)'} ${m.label}`,
+        description: m.description,
+        detail:      m.webhookUrl,
+        picked:      m.id === activeMode,
+        value:       m,
+      })),
+      { title: 'Blackstaff — Changer de mode', placeHolder: 'Sélectionner un mode' }
     );
 
-    return true;
+    if (!choice) return undefined;
+
+    await BlackstaffConfig.set('activeMode', choice.value.id);
+    return choice.value;
   }
 }

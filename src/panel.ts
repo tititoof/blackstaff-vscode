@@ -10,36 +10,34 @@ export class BlackstaffPanel implements vscode.WebviewViewProvider {
 
   constructor(private readonly _context: vscode.ExtensionContext) {}
 
-  // ── Appelé automatiquement par VS Code quand la sidebar est visible ─
   resolveWebviewView(
     webviewView: vscode.WebviewView,
     _context: vscode.WebviewViewResolveContext,
     _token: vscode.CancellationToken
   ) {
     this._view = webviewView;
-
     webviewView.webview.options = {
       enableScripts: true,
       localResourceRoots: [this._context.extensionUri],
     };
-
     this._render();
 
-    // Re-rendre si la config change
     vscode.workspace.onDidChangeConfiguration(e => {
-      if (e.affectsConfiguration('blackstaff')) {
-        this._render();
-      }
+      if (e.affectsConfiguration('blackstaff')) this._render();
     });
 
-    // Messages reçus depuis le WebView
     webviewView.webview.onDidReceiveMessage(async (message) => {
       switch (message.type) {
         case 'generate':
           await this._handleGenerate(message.instruction);
           break;
         case 'configure':
-          await this._handleConfigure();
+          const saved = await BlackstaffConfig.runWizard();
+          if (saved) this._render();
+          break;
+        case 'switchMode':
+          const mode = await BlackstaffConfig.switchMode();
+          if (mode) this._render();
           break;
         case 'openFile':
           await this._openFile(message.path);
@@ -51,16 +49,9 @@ export class BlackstaffPanel implements vscode.WebviewViewProvider {
     });
   }
 
-  // ── API publique ───────────────────────────────────────────────────
-  refreshConfig() {
-    this._sendConfig();
-  }
+  refreshConfig() { this._render(); }
+  focusInput()    { this._view?.webview.postMessage({ type: 'focusInput' }); }
 
-  focusInput() {
-    this._view?.webview.postMessage({ type: 'focusInput' });
-  }
-
-  // ── Rendu ──────────────────────────────────────────────────────────
   private _render() {
     if (!this._view) return;
     this._view.webview.html = getWebviewContent(
@@ -77,7 +68,6 @@ export class BlackstaffPanel implements vscode.WebviewViewProvider {
     });
   }
 
-  // ── Génération ─────────────────────────────────────────────────────
   private async _handleGenerate(instruction: string) {
     if (!instruction?.trim()) {
       this._postError('L\'instruction ne peut pas être vide');
@@ -85,17 +75,28 @@ export class BlackstaffPanel implements vscode.WebviewViewProvider {
     }
 
     const config = BlackstaffConfig.get();
-    if (!config.webhookUrl || !config.project) {
+    if (!config.project) {
       this._postError('Blackstaff n\'est pas configuré. Cliquez sur ⚙ pour configurer.');
       return;
     }
 
-    this._view?.webview.postMessage({ type: 'generating', instruction });
+    const activeMode = BlackstaffConfig.getActiveMode();
+    if (!activeMode) {
+      this._postError('Aucun mode actif configuré.');
+      return;
+    }
+
+    this._view?.webview.postMessage({ type: 'generating', instruction, mode: activeMode.label });
 
     try {
       const response = await sendToN8n(
-        config.webhookUrl,
-        { project: config.project, instruction: instruction.trim(), mode: config.mode },
+        activeMode.webhookUrl,
+        {
+          project:     config.project,
+          instruction: instruction.trim(),
+          mode:        activeMode.id,
+          type:        config.projectType,
+        },
         (msg) => this._view?.webview.postMessage({ type: 'progress', message: msg })
       );
 
@@ -113,13 +114,6 @@ export class BlackstaffPanel implements vscode.WebviewViewProvider {
     }
   }
 
-  // ── Configuration ──────────────────────────────────────────────────
-  private async _handleConfigure() {
-    const saved = await BlackstaffConfig.runWizard();
-    if (saved) this._sendConfig();
-  }
-
-  // ── Ouvrir un fichier ──────────────────────────────────────────────
   private async _openFile(relativePath: string) {
     const folders = vscode.workspace.workspaceFolders;
     if (!folders?.length) {

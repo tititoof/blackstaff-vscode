@@ -75,6 +75,14 @@ export function getWebviewContent(
       font-weight: 600;
       color: var(--vscode-foreground);
     }
+    .config-bar .type {
+      font-weight: 500;
+      color: var(--vscode-descriptionForeground);
+      background: var(--vscode-badge-background);
+      padding: 1px 5px;
+      border-radius: 3px;
+      font-size: 10px;
+    }
     .dot {
       width: 7px; height: 7px;
       border-radius: 50%;
@@ -210,7 +218,66 @@ export function getWebviewContent(
     .badge-warning { background: var(--vscode-editorWarning-foreground); color: #000; }
     .badge-error   { background: var(--vscode-testing-iconFailed);  color: #fff; }
 
-    .error-msg {
+    /* ── Mode bar ────────────────────────────── */
+    .mode-bar {
+      display: flex;
+      gap: 4px;
+      margin-bottom: 10px;
+    }
+    .mode-btn {
+      flex: 1;
+      padding: 4px 8px;
+      font-size: 11px;
+      border: 1px solid var(--vscode-panel-border);
+      border-radius: 3px;
+      background: transparent;
+      color: var(--vscode-descriptionForeground);
+      cursor: pointer;
+    }
+    .mode-btn:hover {
+      background: var(--vscode-list-hoverBackground);
+      color: var(--vscode-foreground);
+    }
+    .mode-btn.active {
+      background: var(--vscode-button-background);
+      color:      var(--vscode-button-foreground);
+      border-color: var(--vscode-button-background);
+      font-weight: 600;
+    }
+
+    /* ── Task list (mode thinking) ───────────── */
+    .task-list { display: flex; flex-direction: column; gap: 6px; margin-top: 8px; }
+    .task-item {
+      padding: 8px 10px;
+      border-radius: 4px;
+      border: 1px solid var(--vscode-panel-border);
+      font-size: 11px;
+    }
+    .task-item .task-title {
+      font-weight: 600;
+      margin-bottom: 3px;
+    }
+    .task-item .task-desc {
+      color: var(--vscode-descriptionForeground);
+      font-size: 10px;
+    }
+    .task-item.pending { border-left: 3px solid var(--vscode-editorWarning-foreground); }
+    .task-item.done    { border-left: 3px solid var(--vscode-testing-iconPassed); }
+    .task-item.error   { border-left: 3px solid var(--vscode-testing-iconFailed); }
+    .task-run-btn {
+      margin-top: 5px;
+      padding: 2px 8px;
+      font-size: 10px;
+      border: 1px solid var(--vscode-button-background);
+      border-radius: 3px;
+      background: transparent;
+      color: var(--vscode-button-background);
+      cursor: pointer;
+    }
+    .task-run-btn:hover {
+      background: var(--vscode-button-background);
+      color: var(--vscode-button-foreground);
+    }
       margin-top: 8px;
       padding: 8px;
       background: var(--vscode-inputValidation-errorBackground);
@@ -226,7 +293,10 @@ export function getWebviewContent(
   <!-- Header -->
   <div class="header">
     <h1>⚡ Blackstaff</h1>
-    <button class="btn-icon" id="btnConfig" title="Configurer">⚙</button>
+    <div style="display:flex;gap:4px">
+      <button class="btn-icon" id="btnMode"   title="Changer de mode">⇄</button>
+      <button class="btn-icon" id="btnConfig" title="Configurer">⚙</button>
+    </div>
   </div>
 
   <!-- Config bar -->
@@ -234,25 +304,44 @@ export function getWebviewContent(
     <div class="dot ${config.project ? '' : 'error'}" id="statusDot"></div>
     <span>
       ${config.project
-        ? `<span class="project">${config.project}</span> — ${config.webhookUrl}`
+        ? `<span class="project">${config.project}</span> · <span class="type">${config.projectType}</span>`
         : 'Non configuré — cliquez sur ⚙'
       }
     </span>
   </div>
 
+  <!-- Mode selector -->
+  <div class="mode-bar" id="modeBar">
+    ${config.modes.map(m => `
+      <button
+        class="mode-btn ${m.id === config.activeMode ? 'active' : ''}"
+        data-mode="${m.id}"
+        title="${m.description}"
+      >${m.label}</button>
+    `).join('')}
+  </div>
+
   <!-- Form -->
   <div class="form">
 
-    <!-- Suggestions rapides -->
+    <!-- Suggestions selon le mode actif -->
     <div class="suggestions" id="suggestions">
-      <button class="chip" data-text="Créer le système d'authentification (login, register, logout)">Auth</button>
-      <button class="chip" data-text="Créer le CRUD complet pour le modèle ">CRUD...</button>
-      <button class="chip" data-text="Créer les tests e2e pour le CRUD ">Tests e2e...</button>
+      ${config.activeMode === 'generate' ? `
+        <button class="chip" data-text="Créer le système d'authentification (login, register, logout)">Auth</button>
+        <button class="chip" data-text="Créer le CRUD complet pour le modèle ">CRUD...</button>
+        <button class="chip" data-text="Créer les tests e2e pour le CRUD ">Tests e2e...</button>
+      ` : `
+        <button class="chip" data-text="Analyser les specs suivantes et décomposer en tâches : ">Analyser specs...</button>
+        <button class="chip" data-text="Planifier le développement de : ">Planifier...</button>
+      `}
     </div>
 
     <textarea
       id="instruction"
-      placeholder="Créer le CRUD complet pour le modèle Article. Les champs name (string, 255 max, 6 min) et content (text, 5000 max, 20 min)."
+      placeholder="${config.activeMode === 'generate'
+        ? 'Créer le CRUD complet pour le modèle Article. Les champs name (string, 255 max, 6 min) et content (text, 5000 max, 20 min).'
+        : 'Analyser les specs suivantes et décomposer en tâches de développement...'
+      }"
       rows="4"
     ></textarea>
 
@@ -260,11 +349,9 @@ export function getWebviewContent(
 
     <div class="btn-row">
       <button class="btn btn-primary" id="btnGenerate">
-        ⚡ Générer
+        ${config.activeMode === 'generate' ? '⚡ Générer' : '💡 Analyser'}
       </button>
-      <button class="btn btn-secondary" id="btnClear">
-        Effacer
-      </button>
+      <button class="btn btn-secondary" id="btnClear">Effacer</button>
     </div>
 
   </div>
@@ -275,15 +362,153 @@ export function getWebviewContent(
   <script>
     const vscode = acquireVsCodeApi();
 
-    // ── Refs ──────────────────────────────────────────────────────
     const instruction = document.getElementById('instruction');
     const btnGenerate = document.getElementById('btnGenerate');
     const btnClear    = document.getElementById('btnClear');
     const btnConfig   = document.getElementById('btnConfig');
+    const btnMode     = document.getElementById('btnMode');
     const statusEl    = document.getElementById('status');
     const resultsEl   = document.getElementById('results');
     const configBar   = document.getElementById('configBar');
     const statusDot   = document.getElementById('statusDot');
+
+    // ── Mode buttons ──────────────────────────────────────────────
+    document.querySelectorAll('.mode-btn').forEach(btn => {
+      btn.addEventListener('click', () => {
+        // Changer de mode via VS Code (QuickPick)
+        vscode.postMessage({ type: 'switchMode' });
+      });
+    });
+
+    // ── Suggestions ───────────────────────────────────────────────
+    document.querySelectorAll('.chip').forEach(chip => {
+      chip.addEventListener('click', () => {
+        instruction.value = chip.dataset.text;
+        instruction.focus();
+        instruction.selectionStart = instruction.selectionEnd = instruction.value.length;
+      });
+    });
+
+    btnGenerate.addEventListener('click', () => {
+      const text = instruction.value.trim();
+      if (!text) { setStatus('⚠ L\\'instruction ne peut pas être vide'); return; }
+      vscode.postMessage({ type: 'generate', instruction: text });
+    });
+
+    btnClear.addEventListener('click', () => {
+      instruction.value = '';
+      resultsEl.innerHTML = '';
+      setStatus('');
+      instruction.focus();
+    });
+
+    btnConfig.addEventListener('click', () => vscode.postMessage({ type: 'configure' }));
+    btnMode.addEventListener('click',   () => vscode.postMessage({ type: 'switchMode' }));
+
+    instruction.addEventListener('keydown', (e) => {
+      if ((e.ctrlKey || e.metaKey) && e.key === 'Enter') btnGenerate.click();
+    });
+
+    // ── Messages reçus ────────────────────────────────────────────
+    window.addEventListener('message', (event) => {
+      const msg = event.data;
+      switch (msg.type) {
+        case 'focusInput':
+          instruction.focus();
+          break;
+        case 'config':
+          // Re-render complet si config change (géré côté panel par _render())
+          break;
+        case 'generating':
+          setGenerating(true, msg.mode);
+          resultsEl.innerHTML = '';
+          break;
+        case 'progress':
+          setStatus('<span class="spinner"></span>' + msg.message);
+          break;
+        case 'result':
+          setGenerating(false);
+          // Rendu selon le type de réponse
+          if (msg.response.tasks) {
+            renderTasks(msg.response);
+          } else {
+            renderFiles(msg.response);
+          }
+          break;
+        case 'error':
+          setGenerating(false);
+          setStatus('');
+          resultsEl.innerHTML = '<div class="error-msg">❌ ' + escHtml(msg.message) + '</div>';
+          break;
+      }
+    });
+
+    vscode.postMessage({ type: 'getConfig' });
+
+    // ── Helpers ───────────────────────────────────────────────────
+    function setGenerating(active, modeName) {
+      btnGenerate.disabled = active;
+      btnGenerate.textContent = active
+        ? (modeName === 'Thinking' ? '💡 Analyse...' : '⚡ Génération...')
+        : (btnGenerate.dataset.mode === 'thinking' ? '💡 Analyser' : '⚡ Générer');
+      if (active) setStatus('<span class="spinner"></span> Envoi à n8n...');
+    }
+
+    function setStatus(html) { statusEl.innerHTML = html; }
+
+    // Rendu mode generate — liste de fichiers
+    function renderFiles(response) {
+      const cls     = response.ok ? 'ok' : response.failed > 0 ? 'error' : 'warn';
+      let html = '<div class="result-header ' + cls + '">' + escHtml(response.message || '') + '</div>';
+      html += '<div class="file-list">';
+      (response.files || []).forEach(f => {
+        const icon  = f.status === 'valid' ? '✅' : f.status === 'warning' || f.status === 'max_retries' ? '⚠️' : '❌';
+        const badge = f.status === 'valid' ? 'badge-valid' : f.status === 'warning' || f.status === 'max_retries' ? 'badge-warning' : 'badge-error';
+        const label = f.status === 'max_retries' ? 'retry' : f.status;
+        const errors = (f.errors || []).length > 0 ? ' title="' + escAttr(f.errors.join('\\n')) + '"' : '';
+        html += '<div class="file-item" data-path="' + escAttr(f.file) + '"' + errors + '>'
+              + '<span class="icon">' + icon + '</span>'
+              + '<span class="path">' + escHtml(f.file) + '</span>'
+              + '<span class="badge ' + badge + '">' + escHtml(label) + '</span>'
+              + '</div>';
+      });
+      html += '</div>';
+      resultsEl.innerHTML = html;
+      resultsEl.querySelectorAll('.file-item').forEach(el => {
+        el.addEventListener('click', () => {
+          vscode.postMessage({ type: 'openFile', path: el.dataset.path });
+        });
+      });
+    }
+
+    // Rendu mode thinking — liste de tâches avec bouton "Exécuter"
+    function renderTasks(response) {
+      const tasks = response.tasks || [];
+      let html = '<div class="result-header ok">💡 ' + tasks.length + ' tâche(s) identifiée(s)</div>';
+      html += '<div class="task-list">';
+      tasks.forEach((task, i) => {
+        html += '<div class="task-item ' + (task.status || 'pending') + '">'
+              + '<div class="task-title">' + escHtml(task.title) + '</div>'
+              + '<div class="task-desc">' + escHtml(task.instruction || '') + '</div>'
+              + '<button class="task-run-btn" data-instruction="' + escAttr(task.instruction) + '">'
+              + '⚡ Exécuter en Generate'
+              + '</button>'
+              + '</div>';
+      });
+      html += '</div>';
+      resultsEl.innerHTML = html;
+
+      // Clic sur "Exécuter" → envoyer la tâche en mode generate
+      resultsEl.querySelectorAll('.task-run-btn').forEach(btn => {
+        btn.addEventListener('click', () => {
+          instruction.value = btn.dataset.instruction;
+          vscode.postMessage({ type: 'generate', instruction: btn.dataset.instruction });
+        });
+      });
+    }
+
+    function escHtml(str)  { return String(str).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;'); }
+    function escAttr(str)  { return escHtml(str).replace(/'/g,'&#39;'); }
 
     // ── Suggestions ───────────────────────────────────────────────
     document.querySelectorAll('.chip').forEach(chip => {
@@ -372,7 +597,9 @@ export function getWebviewContent(
     function updateConfigBar(config) {
       statusDot.className = 'dot' + (config.project ? '' : ' error');
       configBar.querySelector('span').innerHTML = config.project
-        ? '<span class="project">' + escHtml(config.project) + '</span> — ' + escHtml(config.webhookUrl)
+        ? '<span class="project">' + escHtml(config.project) + '</span>'
+          + ' · <span class="type">' + escHtml(config.projectType || 'nuxt3') + '</span>'
+          + ' — ' + escHtml(config.webhookUrl)
         : 'Non configuré — cliquez sur ⚙';
     }
 

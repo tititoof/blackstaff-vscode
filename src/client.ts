@@ -6,6 +6,7 @@ export interface BlackstaffRequest {
   project:     string;
   instruction: string;
   mode:        string;
+  type:        string;
 }
 
 export interface BlackstaffFileResult {
@@ -22,6 +23,16 @@ export interface BlackstaffResponse {
   failed:   number;
   files:    BlackstaffFileResult[];
   message:  string;
+  // Pour le mode thinking : tâches décomposées
+  tasks?:   BlackstaffTask[];
+}
+
+export interface BlackstaffTask {
+  id:          number;
+  title:       string;
+  instruction: string;
+  status:      'pending' | 'done' | 'error';
+  files?:      BlackstaffFileResult[];
 }
 
 export async function sendToN8n(
@@ -42,26 +53,22 @@ export async function sendToN8n(
         'Content-Type':   'application/json',
         'Content-Length': Buffer.byteLength(body),
       },
-      timeout: 300_000, // 5min — génération peut être longue avec qwen2.5:3b
+      timeout: 300_000,
     };
 
-    const lib     = url.protocol === 'https:' ? https : http;
+    const lib = url.protocol === 'https:' ? https : http;
     const req = lib.request(options, (res) => {
       let data = '';
-
       res.on('data', (chunk) => {
         data += chunk;
-        // Parser les chunks pour progress live si n8n streame
-        onProgress?.(`Réception des données...`);
+        onProgress?.('Réception des données...');
       });
-
       res.on('end', () => {
         if (res.statusCode && res.statusCode >= 400) {
           reject(new Error(`n8n a retourné une erreur ${res.statusCode}: ${data}`));
           return;
         }
         try {
-          // n8n retourne parfois un tableau
           const parsed = JSON.parse(data);
           const result = Array.isArray(parsed) ? parsed[0] : parsed;
           resolve(result as BlackstaffResponse);
@@ -71,14 +78,8 @@ export async function sendToN8n(
       });
     });
 
-    req.on('error', (err) => {
-      reject(new Error(`Impossible de joindre n8n: ${err.message}`));
-    });
-
-    req.on('timeout', () => {
-      req.destroy();
-      reject(new Error('Timeout — n8n n\'a pas répondu dans les 5 minutes'));
-    });
+    req.on('error',   (err) => reject(new Error(`Impossible de joindre n8n: ${err.message}`)));
+    req.on('timeout', ()    => { req.destroy(); reject(new Error('Timeout — n8n n\'a pas répondu dans les 5 minutes')); });
 
     req.write(body);
     req.end();
