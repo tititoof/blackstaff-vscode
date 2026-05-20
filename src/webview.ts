@@ -13,9 +13,10 @@ export function getWebviewContent(
   // code-server a une CSP différente de VS Code desktop
   // On utilise 'unsafe-inline' en fallback pour garantir le rendu
   const csp = `default-src 'none';
-    style-src  'nonce-${nonce}' 'unsafe-inline' ${webview.cspSource};
-    script-src 'nonce-${nonce}' 'unsafe-inline';
-    img-src    ${webview.cspSource} data:;`;
+    style-src   'nonce-${nonce}' 'unsafe-inline' ${webview.cspSource};
+    script-src  'nonce-${nonce}' 'unsafe-inline';
+    img-src     ${webview.cspSource} data:;
+    connect-src *;`;
 
   return /* html */`<!DOCTYPE html>
 <html lang="fr">
@@ -360,7 +361,66 @@ export function getWebviewContent(
   <div id="results"></div>
 
   <script>
-    const vscode = acquireVsCodeApi();
+    // ── acquireVsCodeApi avec fallback pour code-server ───────────
+    // Dans code-server, acquireVsCodeApi peut ne pas être disponible
+    // selon la version. On utilise un proxy qui fallback sur fetch.
+    let _vscodeApi = null;
+    try {
+      _vscodeApi = acquireVsCodeApi();
+    } catch(e) {
+      console.warn('[Blackstaff] acquireVsCodeApi non disponible, fallback HTTP:', e.message);
+    }
+
+    // Config injectée côté serveur (toujours disponible même sans API)
+    const _config = ${JSON.stringify({ project: config.project, projectType: config.projectType, activeMode: config.activeMode, modes: config.modes })};
+
+    // Proxy unifié : postMessage si API dispo, sinon fetch direct vers n8n
+    const vscode = {
+      postMessage(msg) {
+        if (_vscodeApi) {
+          _vscodeApi.postMessage(msg);
+          return;
+        }
+        // Fallback : traiter les messages critiques localement
+        if (msg.type === 'generate') {
+          _handleGenerateDirect(msg.instruction);
+        } else if (msg.type === 'configure' || msg.type === 'switchMode') {
+          setStatus('⚠ Ouvrez les Settings VS Code pour configurer Blackstaff (Ctrl+,)');
+        }
+      }
+    };
+
+    // Génération directe via fetch (fallback sans postMessage)
+    async function _handleGenerateDirect(instruction) {
+      const activeMode = _config.modes.find(m => m.id === _config.activeMode) || _config.modes[0];
+      if (!activeMode || !_config.project) {
+        setStatus('⚠ Configurez Blackstaff dans les Settings VS Code (Ctrl+,)');
+        return;
+      }
+      setGenerating(true, activeMode.label);
+      resultsEl.innerHTML = '';
+      try {
+        const res = await fetch(activeMode.webhookUrl, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            project:     _config.project,
+            instruction: instruction,
+            mode:        activeMode.id,
+            type:        _config.projectType,
+          })
+        });
+        if (!res.ok) throw new Error('n8n a retourné ' + res.status);
+        const data = await res.json();
+        const response = Array.isArray(data) ? data[0] : data;
+        setGenerating(false);
+        if (response.tasks) renderTasks(response);
+        else renderFiles(response);
+      } catch(e) {
+        setGenerating(false);
+        resultsEl.innerHTML = '<div class="error-msg">❌ ' + escHtml(e.message) + '</div>';
+      }
+    }
 
     const instruction = document.getElementById('instruction');
     const btnGenerate = document.getElementById('btnGenerate');
