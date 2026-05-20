@@ -1,0 +1,90 @@
+{
+  "name": "blackstaff",
+  "displayName": "Blackstaff — Code Generator",
+  "description": "Envoie des instructions à n8n pour générer du code dans ton projet Nuxt 3 + Rails",
+  "publisher": "tititoof",
+  "version": "0.1.0",
+  "engines": { "vscode": "^1.85.0" },
+  "categories": ["Other"],
+  "icon": "media/icon.png",
+  "activationEvents": ["onStartupFinished"],
+  "main": "./out/extension.js",
+  "contributes": {
+    "commands": [
+      {
+        "command": "blackstaff.generate",
+        "title": "Blackstaff: Générer du code",
+        "icon": "$(wand)"
+      },
+      {
+        "command": "blackstaff.configure",
+        "title": "Blackstaff: Configurer",
+        "icon": "$(gear)"
+      },
+      {
+        "command": "blackstaff.openPanel",
+        "title": "Blackstaff: Ouvrir le panel",
+        "icon": "$(layout-sidebar-right)"
+      }
+    ],
+    "menus": {
+      "editor/title": [
+        {
+          "command": "blackstaff.generate",
+          "group": "navigation"
+        }
+      ]
+    },
+    "viewsContainers": {
+      "activitybar": [
+        {
+          "id": "blackstaff",
+          "title": "Blackstaff",
+          "icon": "media/sidebar-icon.svg"
+        }
+      ]
+    },
+    "views": {
+      "blackstaff": [
+        {
+          "type": "webview",
+          "id": "blackstaff.panel",
+          "name": "Blackstaff"
+        }
+      ]
+    },
+    "configuration": {
+      "title": "Blackstaff",
+      "properties": {
+        "blackstaff.webhookUrl": {
+          "type": "string",
+          "default": "http://localhost:5678/webhook/blackstaff",
+          "description": "URL du webhook n8n"
+        },
+        "blackstaff.project": {
+          "type": "string",
+          "default": "",
+          "description": "Nom du projet (dossier dans /home/node/projets/)"
+        },
+        "blackstaff.mode": {
+          "type": "string",
+          "default": "generate",
+          "enum": ["generate", "dry-run"],
+          "description": "Mode : generate (écrit les fichiers) ou dry-run (preview uniquement)"
+        }
+      }
+    }
+  },
+  "scripts": {
+    "vscode:prepublish": "npm run compile",
+    "compile": "tsc -p ./",
+    "watch": "tsc -watch -p ./",
+    "package": "vsce package"
+  },
+  "devDependencies": {
+    "@types/vscode": "^1.85.0",
+    "@types/node": "^20.0.0",
+    "typescript": "^5.3.0",
+    "@vscode/vsce": "^2.22.0"
+  }
+}
