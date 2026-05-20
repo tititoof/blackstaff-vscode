@@ -10,15 +10,19 @@ export function getWebviewContent(
   // Nonce pour la Content Security Policy
   const nonce = getNonce();
 
+  // code-server a une CSP différente de VS Code desktop
+  // On utilise 'unsafe-inline' en fallback pour garantir le rendu
+  const csp = `default-src 'none';
+    style-src  'nonce-${nonce}' 'unsafe-inline' ${webview.cspSource};
+    script-src 'nonce-${nonce}' 'unsafe-inline';
+    img-src    ${webview.cspSource} data:;`;
+
   return /* html */`<!DOCTYPE html>
 <html lang="fr">
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <meta http-equiv="Content-Security-Policy"
-    content="default-src 'none';
-             style-src  'nonce-${nonce}' ${webview.cspSource};
-             script-src 'nonce-${nonce}';" />
+  <meta http-equiv="Content-Security-Policy" content="${csp}" />
   <title>Blackstaff</title>
   <style nonce="${nonce}">
     * { box-sizing: border-box; margin: 0; padding: 0; }
@@ -268,7 +272,7 @@ export function getWebviewContent(
   <!-- Résultats -->
   <div id="results"></div>
 
-  <script nonce="${nonce}">
+  <script>
     const vscode = acquireVsCodeApi();
 
     // ── Refs ──────────────────────────────────────────────────────
