@@ -13,8 +13,8 @@ export function getWebviewContent(
   // code-server a une CSP différente de VS Code desktop
   // On utilise 'unsafe-inline' en fallback pour garantir le rendu
   const csp = `default-src 'none';
-    style-src   'nonce-${nonce}' 'unsafe-inline' ${webview.cspSource};
-    script-src  'nonce-${nonce}' 'unsafe-inline';
+    style-src   'unsafe-inline' ${webview.cspSource};
+    script-src  'unsafe-inline';
     img-src     ${webview.cspSource} data:;
     connect-src *;`;
 
@@ -25,7 +25,7 @@ export function getWebviewContent(
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <meta http-equiv="Content-Security-Policy" content="${csp}" />
   <title>Blackstaff</title>
-  <style nonce="${nonce}">
+  <style>
     * { box-sizing: border-box; margin: 0; padding: 0; }
 
     body {
