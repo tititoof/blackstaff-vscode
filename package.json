@@ -2,11 +2,22 @@
   "name": "blackstaff",
   "displayName": "Blackstaff — Code Generator",
   "description": "Envoie des instructions à n8n pour générer du code dans ton projet Nuxt 3 + Rails",
+  "version": "0.1.2",
   "publisher": "tititoof",
-  "version": "0.1.0",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/tititoof/blackstaff-vscode"
+  },
+  "license": "MIT",
   "engines": { "vscode": "^1.85.0" },
   "categories": ["Other"],
   "icon": "media/icon.png",
+  "files": [
+    "out/**",
+    "media/**",
+    "package.json",
+    "README.md"
+  ],
   "activationEvents": ["onStartupFinished"],
   "main": "./out/extension.js",
   "contributes": {
